@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="600" viewBox="0 0 1240 600" font-family="Fira Sans, Segoe UI, sans-serif">
+<rect width="1240" height="600" fill="#252525"/>
+<text x="96" y="40" fill="#E22D00" font-size="13" font-weight="700" letter-spacing="2">PIPELINE SLA CAPACITY</text>
+<text x="96" y="70" fill="#F1ECDC" font-size="25" font-weight="700">The mean meets the SLA. The pipeline misses it 38% of the time.</text>
+<text x="96" y="94" fill="rgba(241,236,220,0.55)" font-size="13.5">And no amount of capacity fixes that, because the service times alone breach the promise.</text>
+<text x="96" y="112" fill="#F1ECDC" font-size="14" font-weight="700">SLA attainment against fleet size</text>
+<line x1="96" y1="504.0" x2="584.0" y2="504.0" stroke="rgba(241,236,220,0.13)"/>
+<text x="86" y="508.0" fill="rgba(241,236,220,0.55)" font-size="11.5" text-anchor="end">0%</text>
+<line x1="96" y1="428.8" x2="584.0" y2="428.8" stroke="rgba(241,236,220,0.13)"/>
+<text x="86" y="432.8" fill="rgba(241,236,220,0.55)" font-size="11.5" text-anchor="end">20%</text>
+<line x1="96" y1="353.6" x2="584.0" y2="353.6" stroke="rgba(241,236,220,0.13)"/>
+<text x="86" y="357.6" fill="rgba(241,236,220,0.55)" font-size="11.5" text-anchor="end">40%</text>
+<line x1="96" y1="278.4" x2="584.0" y2="278.4" stroke="rgba(241,236,220,0.13)"/>
+<text x="86" y="282.4" fill="rgba(241,236,220,0.55)" font-size="11.5" text-anchor="end">60%</text>
+<line x1="96" y1="203.2" x2="584.0" y2="203.2" stroke="rgba(241,236,220,0.13)"/>
+<text x="86" y="207.2" fill="rgba(241,236,220,0.55)" font-size="11.5" text-anchor="end">80%</text>
+<line x1="96" y1="128.0" x2="584.0" y2="128.0" stroke="rgba(241,236,220,0.13)"/>
+<text x="86" y="132.0" fill="rgba(241,236,220,0.55)" font-size="11.5" text-anchor="end">100%</text>
+<line x1="96" y1="131.8" x2="584.0" y2="131.8" stroke="#F1ECDC" stroke-width="1.5" stroke-dasharray="6 4" stroke-opacity="0.7"/>
+<text x="584.0" y="123.8" fill="#F1ECDC" font-size="11.5" text-anchor="end">99% target</text>
+<line x1="96" y1="205.4" x2="584.0" y2="205.4" stroke="#E22D00" stroke-width="1.5" stroke-dasharray="4 4"/>
+<rect x="416.0" y="213.4" width="168" height="21" fill="#E22D00"/>
+<text x="500.0" y="228.4" fill="#F1ECDC" font-size="11.5" font-weight="700" text-anchor="middle">ceiling 79%, unreachable</text>
+<polyline points="96.0,263.1 140.4,206.5 184.7,205.5 229.1,205.4 317.8,205.4 406.5,205.4 584.0,205.4" fill="none" stroke="#E22D00" stroke-width="3" stroke-linejoin="round"/>
+<circle cx="96.0" cy="263.1" r="4" fill="#F1ECDC"/>
+<circle cx="140.4" cy="206.5" r="4" fill="#F1ECDC"/>
+<circle cx="184.7" cy="205.5" r="4" fill="#F1ECDC"/>
+<circle cx="229.1" cy="205.4" r="4" fill="#F1ECDC"/>
+<circle cx="317.8" cy="205.4" r="4" fill="#F1ECDC"/>
+<circle cx="406.5" cy="205.4" r="4" fill="#F1ECDC"/>
+<circle cx="584.0" cy="205.4" r="4" fill="#F1ECDC"/>
+<text x="96.0" y="526.0" fill="rgba(241,236,220,0.55)" font-size="11.5" text-anchor="middle">11</text>
+<text x="140.4" y="526.0" fill="rgba(241,236,220,0.55)" font-size="11.5" text-anchor="middle">22</text>
+<text x="184.7" y="526.0" fill="rgba(241,236,220,0.55)" font-size="11.5" text-anchor="middle">33</text>
+<text x="229.1" y="526.0" fill="rgba(241,236,220,0.55)" font-size="11.5" text-anchor="middle">44</text>
+<text x="317.8" y="526.0" fill="rgba(241,236,220,0.55)" font-size="11.5" text-anchor="middle">66</text>
+<text x="406.5" y="526.0" fill="rgba(241,236,220,0.55)" font-size="11.5" text-anchor="middle">88</text>
+<text x="584.0" y="526.0" fill="rgba(241,236,220,0.55)" font-size="11.5" text-anchor="middle">132</text>
+<text x="340.0" y="550.0" fill="rgba(241,236,220,0.55)" font-size="12" text-anchor="middle">Total workers across all four stages</text>
+<text x="656.0" y="112" fill="#F1ECDC" font-size="14" font-weight="700">Latency at the bottleneck, by utilization</text>
+<line x1="656.0" y1="504.0" x2="1144.0" y2="504.0" stroke="rgba(241,236,220,0.13)"/>
+<text x="646.0" y="508.0" fill="rgba(241,236,220,0.55)" font-size="11.5" text-anchor="end">0m</text>
+<line x1="656.0" y1="410.0" x2="1144.0" y2="410.0" stroke="rgba(241,236,220,0.13)"/>
+<text x="646.0" y="414.0" fill="rgba(241,236,220,0.55)" font-size="11.5" text-anchor="end">15m</text>
+<line x1="656.0" y1="316.0" x2="1144.0" y2="316.0" stroke="rgba(241,236,220,0.13)"/>
+<text x="646.0" y="320.0" fill="rgba(241,236,220,0.55)" font-size="11.5" text-anchor="end">30m</text>
+<line x1="656.0" y1="222.0" x2="1144.0" y2="222.0" stroke="rgba(241,236,220,0.13)"/>
+<text x="646.0" y="226.0" fill="rgba(241,236,220,0.55)" font-size="11.5" text-anchor="end">45m</text>
+<line x1="656.0" y1="128.0" x2="1144.0" y2="128.0" stroke="rgba(241,236,220,0.13)"/>
+<text x="646.0" y="132.0" fill="rgba(241,236,220,0.55)" font-size="11.5" text-anchor="end">60m</text>
+<rect x="667.6" y="472.2" width="37.8" height="31.8" fill="#F1ECDC"/>
+<text x="686.5" y="465.2" fill="rgba(241,236,220,0.55)" font-size="10.5" text-anchor="middle">0.8x</text>
+<text x="686.5" y="526.0" fill="rgba(241,236,220,0.55)" font-size="11.5" text-anchor="middle">50%</text>
+<rect x="728.6" y="469.7" width="37.8" height="34.3" fill="#F1ECDC"/>
+<text x="747.5" y="462.7" fill="rgba(241,236,220,0.55)" font-size="10.5" text-anchor="middle">0.9x</text>
+<text x="747.5" y="526.0" fill="rgba(241,236,220,0.55)" font-size="11.5" text-anchor="middle">60%</text>
+<rect x="789.6" y="465.0" width="37.8" height="39.0" fill="#F1ECDC"/>
+<text x="808.5" y="458.0" fill="rgba(241,236,220,0.55)" font-size="10.5" text-anchor="middle">1.0x</text>
+<text x="808.5" y="526.0" fill="rgba(241,236,220,0.55)" font-size="11.5" text-anchor="middle">70%</text>
+<rect x="850.6" y="454.9" width="37.8" height="49.1" fill="#F1ECDC"/>
+<text x="869.5" y="447.9" fill="rgba(241,236,220,0.55)" font-size="10.5" text-anchor="middle">1.3x</text>
+<text x="869.5" y="526.0" fill="rgba(241,236,220,0.55)" font-size="11.5" text-anchor="middle">80%</text>
+<rect x="911.6" y="444.4" width="37.8" height="59.6" fill="#F1ECDC"/>
+<text x="930.5" y="437.4" fill="rgba(241,236,220,0.55)" font-size="10.5" text-anchor="middle">1.5x</text>
+<text x="930.5" y="526.0" fill="rgba(241,236,220,0.55)" font-size="11.5" text-anchor="middle">85%</text>
+<rect x="972.6" y="423.0" width="37.8" height="81.0" fill="#E22D00"/>
+<text x="991.5" y="416.0" fill="rgba(241,236,220,0.55)" font-size="10.5" text-anchor="middle">2.1x</text>
+<text x="991.5" y="526.0" fill="rgba(241,236,220,0.55)" font-size="11.5" text-anchor="middle">90%</text>
+<rect x="1033.6" y="358.1" width="37.8" height="145.9" fill="#E22D00"/>
+<text x="1052.5" y="351.1" fill="rgba(241,236,220,0.55)" font-size="10.5" text-anchor="middle">3.7x</text>
+<text x="1052.5" y="526.0" fill="rgba(241,236,220,0.55)" font-size="11.5" text-anchor="middle">95%</text>
+<rect x="1094.6" y="162.2" width="37.8" height="341.8" fill="#E22D00"/>
+<text x="1113.5" y="155.2" fill="rgba(241,236,220,0.55)" font-size="10.5" text-anchor="middle">8.8x</text>
+<text x="1113.5" y="526.0" fill="rgba(241,236,220,0.55)" font-size="11.5" text-anchor="middle">98%</text>
+<text x="900.0" y="550.0" fill="rgba(241,236,220,0.55)" font-size="12" text-anchor="middle">Utilization, indexed to 70% busy</text>
+<text x="96" y="576" fill="rgba(241,236,220,0.55)" font-size="11.5">Attainment measured by discrete-event simulation with pooled replications. Latency from Kingman&#8217;s approximation. Illustrative figures.</text>
+</svg>

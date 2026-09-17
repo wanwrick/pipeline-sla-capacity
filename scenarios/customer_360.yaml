@@ -1,0 +1,64 @@
+# A four-stage lakehouse pipeline with a 15-minute freshness promise.
+#
+# Times are minutes and rates are batches per minute. The figures are
+# illustrative and belong to no employer; they describe the shape of a
+# CDC-fed medallion pipeline serving a customer data product.
+#
+# arrival_cv and service_cv are coefficients of variation. They are the V in
+# the VUT equation and the input teams almost never measure, which is why
+# capacity plans built on averages come up short.
+
+name: Customer 360 freshness
+sla_minutes: 15.0
+description: >
+  Source events land continuously, get validated, get conformed into the gold
+  customer model, and refresh the serving layer. Freshness is measured end to
+  end, from the event landing to the serving layer reflecting it.
+
+stages:
+  - name: Bronze ingest
+    note: Auto Loader, file-arrival triggered. Bursty by nature.
+    arrival_rate: 0.55        # about one batch every two minutes
+    service_time: 1.4
+    servers: 2
+    arrival_cv: 1.6           # file drops clump; this is the burstiness
+    service_cv: 0.7
+
+  - name: Silver validation
+    note: Expectations, dedup, SCD Type 2 on the customer dimension.
+    arrival_rate: 0.55
+    service_time: 3.1
+    servers: 3
+    arrival_cv: 1.1
+    service_cv: 1.3           # a late-arriving CDC batch runs far longer
+
+  - name: Gold conform
+    note: Joins to product and date dimensions, rebuilds the customer model.
+    arrival_rate: 0.55
+    service_time: 4.6
+    servers: 4
+    arrival_cv: 0.9
+    service_cv: 1.0
+
+  - name: Serving refresh
+    note: Materialized view refresh plus cache warm.
+    arrival_rate: 0.55
+    service_time: 1.9
+    servers: 2
+    arrival_cv: 0.8
+    service_cv: 0.5
+
+# Monthly prices for the capacity-against-breach trade-off.
+costs:
+  cost_per_server_month: 1_180.0
+  breach_cost: 42.0             # cost of one batch landing late
+  batches_per_month: 23_760     # 0.55/min x 60 x 24 x 30
+  sla_credit_threshold: 0.99
+  sla_credit: 12_000.0          # contractual credit if attainment misses 99%
+
+simulation:
+  batches: 20000
+  warmup: 2000
+  seed: 20260916
+
+peak_multipliers: [1.0, 1.1, 1.2, 1.3, 1.4, 1.5]
