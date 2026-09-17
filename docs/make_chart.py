@@ -64,8 +64,10 @@ def main() -> None:
     add(f'<rect width="{WIDTH}" height="{HEIGHT}" fill="{CHARCOAL}"/>')
     add(f'<text x="{LEFT_X}" y="40" fill="{RED}" font-size="13" font-weight="700" '
         f'letter-spacing="2">PIPELINE SLA CAPACITY</text>')
+    baseline_attainment = points[0][1]
     add(f'<text x="{LEFT_X}" y="70" fill="{PARCHMENT}" font-size="25" font-weight="700">'
-        f'The mean meets the SLA. The pipeline misses it 38% of the time.</text>')
+        f'The mean meets the SLA. The pipeline misses it '
+        f'{(1 - baseline_attainment) * 100:.0f}% of the time.</text>')
     add(f'<text x="{LEFT_X}" y="94" fill="{MUTED}" font-size="13.5">'
         f'And no amount of capacity fixes that, because the service times alone '
         f'breach the promise.</text>')

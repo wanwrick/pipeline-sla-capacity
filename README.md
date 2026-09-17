@@ -16,19 +16,19 @@ On the illustrative pipeline in `scenarios/`:
 
 | | |
 |---|---|
-| Mean end-to-end latency | 14.1 min, inside a 15-minute SLA |
-| Batches actually inside the window | **62%** |
-| p95 | 28 min |
+| Mean end-to-end latency | 13.9 min, inside a 15-minute SLA |
+| Batches actually inside the window | **64%** |
+| p95 | 27.6 min |
 | Attainment after adding 12 workers | 79%, then it stops improving |
 | Ceiling with unlimited capacity | **79%** |
-| Service-time p99 with zero queueing | **32 min** |
+| Service-time p99 with zero queueing | **31.9 min** |
 
 **The SLA is unreachable by any capacity plan.** With every queue driven to
 empty, the pipeline's own service times breach a 15-minute promise one run in
 five. Buying compute for that target is buying nothing.
 
 The three real options, which the generated memo states in order: re-price the
-promise at 23 minutes for 95% or 32 minutes for 99%, cut variability at the
+promise at 23.1 minutes for 95% or 31.9 minutes for 99%, cut variability at the
 bottleneck before buying anything, or scope a multi-stage redesign. The full
 memo is in [`output/capacity.md`](output/capacity.md).
 
@@ -40,7 +40,7 @@ Capacity planning for data platforms is usually done by watching a utilization
 chart and adding workers when it looks high. That method fails in two specific
 ways, and both are visible above.
 
-**An average is not a service level.** A mean inside the SLA and 62% attainment
+**An average is not a service level.** A mean inside the SLA and 64% attainment
 are the same pipeline. A freshness dashboard reporting the mean shows green
 every day the promise breaks.
 

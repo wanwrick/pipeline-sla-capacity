@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1240" height="600" viewBox="0 0 1240 600" font-family="Fira Sans, Segoe UI, sans-serif">
 <rect width="1240" height="600" fill="#252525"/>
 <text x="96" y="40" fill="#E22D00" font-size="13" font-weight="700" letter-spacing="2">PIPELINE SLA CAPACITY</text>
-<text x="96" y="70" fill="#F1ECDC" font-size="25" font-weight="700">The mean meets the SLA. The pipeline misses it 38% of the time.</text>
+<text x="96" y="70" fill="#F1ECDC" font-size="25" font-weight="700">The mean meets the SLA. The pipeline misses it 36% of the time.</text>
 <text x="96" y="94" fill="rgba(241,236,220,0.55)" font-size="13.5">And no amount of capacity fixes that, because the service times alone breach the promise.</text>
 <text x="96" y="112" fill="#F1ECDC" font-size="14" font-weight="700">SLA attainment against fleet size</text>
 <line x1="96" y1="504.0" x2="584.0" y2="504.0" stroke="rgba(241,236,220,0.13)"/>
