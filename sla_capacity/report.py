@@ -82,8 +82,8 @@ def render(
         add(f"The reason is that the service times alone breach the promise. With "
             f"zero waiting, the pipeline's own p95 is {minutes(ceiling.floor_p95)} "
             f"and its p99 is {minutes(ceiling.floor_p99)}. A "
-            f"{sla:.0f}-minute SLA is not a capacity target for this design. It is "
-            f"a design target, and the design does not meet it.")
+            f"{sla:.0f}-minute SLA is not a capacity target here. It is a design "
+            f"target, and this architecture does not meet it.")
         add("")
         add("**Three real options, in the order they should be considered.**")
         add("")
@@ -167,8 +167,8 @@ def render(
     add("")
     add("Kingman's approximation factors waiting into variability, utilization and "
         "service time. Reporting them apart matters because the fix differs by "
-        "factor: high variability is an engineering problem, high utilization is a "
-        "budget problem, and high service time is a code problem.")
+        "factor. High variability is an engineering problem, high utilization a "
+        "budget problem, high service time a code problem.")
     add("")
     add("| Stage | V (variability) | U (utilization term) | T (service) | Wait |")
     add("|---|---:|---:|---:|---:|")
@@ -180,8 +180,8 @@ def render(
     worst_v = max(result.stages, key=lambda s: s.variability)
     add(f"{worst_v.name} carries the highest variability at V = "
         f"{worst_v.variability:.2f}. Almost no team measures the coefficient of "
-        f"variation of its own batches, which is why V never appears in a capacity "
-        f"request even though it moves the answer as much as U does.")
+        f"variation of its own batches. So V never appears in a capacity request, "
+        f"even though it moves the answer as much as U does.")
     add("")
 
     # --- Utilization cliff ----------------------------------------------------------
@@ -250,8 +250,8 @@ def render(
         add(f"Total cost bottoms out at **{best.servers} workers on "
             f"{bottleneck.name}**, at {pct(best.utilization, 0)} utilization and "
             f"{pct(best.attainment, 0)} attainment. The credit threshold is never "
-            f"cleared at any capacity in this range, which is the same finding as "
-            f"above arriving through the invoice instead of through the queue.")
+            f"cleared at any capacity in this range. That is the same finding as "
+            f"above, arriving through the invoice instead of the queue.")
     add("")
 
     # --- Method ------------------------------------------------------------------------
@@ -265,8 +265,8 @@ def render(
         "percentile and a formula for the mean cannot answer it.")
     add("")
     add("The two are cross-checked. On M/M/c workloads the simulated mean wait "
-        "matches the closed form within a few percent, and the test suite fails if "
-        "it stops doing so.")
+        "matches the closed form within a few percent. The test suite fails if it "
+        "stops doing so.")
     add("")
     add("Simulation uses the independent-replications method. One run of a queue is "
         "not an estimate: successive waits are strongly autocorrelated, and single "

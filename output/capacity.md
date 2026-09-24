@@ -1,6 +1,6 @@
 # Customer 360 freshness: capacity for a 15-minute SLA
 
-*Generated 2026-09-16 from the scenarios directory. Analytic sizing cross-checked against 108,000 simulated batches.*
+*Generated 2026-09-24 from the scenarios directory. Analytic sizing cross-checked against 108,000 simulated batches.*
 
 ## Recommendation
 
@@ -8,7 +8,7 @@
 
 Adding 20 workers, taking the fleet from 11 to 31, moves attainment from 63% to 79% and then stops improving. Drive queueing out entirely with unlimited capacity and the ceiling is **79%**.
 
-The reason is that the service times alone breach the promise. With zero waiting, the pipeline's own p95 is 23.1 min and its p99 is 31.9 min. A 15-minute SLA is not a capacity target for this design. It is a design target, and the design does not meet it.
+The reason is that the service times alone breach the promise. With zero waiting, the pipeline's own p95 is 23.1 min and its p99 is 31.9 min. A 15-minute SLA is not a capacity target here. It is a design target, and this architecture does not meet it.
 
 **Three real options, in the order they should be considered.**
 
@@ -45,7 +45,7 @@ Note how little of the total is queueing. Most of this latency is service time, 
 
 ### The three levers
 
-Kingman's approximation factors waiting into variability, utilization and service time. Reporting them apart matters because the fix differs by factor: high variability is an engineering problem, high utilization is a budget problem, and high service time is a code problem.
+Kingman's approximation factors waiting into variability, utilization and service time. Reporting them apart matters because the fix differs by factor. High variability is an engineering problem, high utilization a budget problem, high service time a code problem.
 
 | Stage | V (variability) | U (utilization term) | T (service) | Wait |
 |---|---:|---:|---:|---:|
@@ -54,7 +54,7 @@ Kingman's approximation factors waiting into variability, utilization and servic
 | Gold conform | 0.91 | 0.25 | 4.6 min | 1.1 min |
 | Serving refresh | 0.45 | 0.41 | 1.9 min | 0.3 min |
 
-Bronze ingest carries the highest variability at V = 1.53. Almost no team measures the coefficient of variation of its own batches, which is why V never appears in a capacity request even though it moves the answer as much as U does.
+Bronze ingest carries the highest variability at V = 1.53. Almost no team measures the coefficient of variation of its own batches. So V never appears in a capacity request, even though it moves the answer as much as U does.
 
 ## Why running it hotter does not work either
 
@@ -111,7 +111,7 @@ Workers cost $1.2K a month each. A late batch costs $0.0K, and attainment below 
 | 8 | 32% | 68% | $17.7K | $335.0K | $352.7K |
 | 9 | 28% | 68% | $18.9K | $335.0K | $353.9K |
 
-Total cost bottoms out at **7 workers on Gold conform**, at 36% utilization and 68% attainment. The credit threshold is never cleared at any capacity in this range, which is the same finding as above arriving through the invoice instead of through the queue.
+Total cost bottoms out at **7 workers on Gold conform**, at 36% utilization and 68% attainment. The credit threshold is never cleared at any capacity in this range. That is the same finding as above, arriving through the invoice instead of the queue.
 
 ---
 
@@ -119,7 +119,7 @@ Total cost bottoms out at **7 workers on Gold conform**, at 36% utilization and 
 
 Sizing uses Kingman's approximation for G/G/c, exact Erlang C where the workload is Markovian, and Little's Law for queue depth. Percentiles and attainment come from discrete-event simulation, because an SLA is a percentile and a formula for the mean cannot answer it.
 
-The two are cross-checked. On M/M/c workloads the simulated mean wait matches the closed form within a few percent, and the test suite fails if it stops doing so.
+The two are cross-checked. On M/M/c workloads the simulated mean wait matches the closed form within a few percent. The test suite fails if it stops doing so.
 
 Simulation uses the independent-replications method. One run of a queue is not an estimate: successive waits are strongly autocorrelated, and single runs measured here landed up to 13% off the true mean while looking convergent.
 
