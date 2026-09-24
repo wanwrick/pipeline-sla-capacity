@@ -121,7 +121,7 @@ Sizing uses Kingman's approximation for G/G/c, exact Erlang C where the workload
 
 The two are cross-checked. On M/M/c workloads the simulated mean wait matches the closed form within a few percent. The test suite fails if it stops doing so.
 
-Simulation uses the independent-replications method. One run of a queue is not an estimate: successive waits are strongly autocorrelated, and single runs measured here landed up to 13% off the true mean while looking convergent.
+Simulation uses the independent-replications method. One run of a queue is not an estimate. Successive waits are strongly autocorrelated, and single runs measured here landed up to 13% off the true mean while looking convergent.
 
 Stage latencies are sampled independently and summed, which understates the tail slightly. A slow upstream batch tends to arrive into a busy downstream stage, and that correlation is not modelled. The real attainment is therefore a little worse than reported here, not better.
 

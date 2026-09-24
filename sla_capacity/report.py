@@ -269,7 +269,7 @@ def render(
         "stops doing so.")
     add("")
     add("Simulation uses the independent-replications method. One run of a queue is "
-        "not an estimate: successive waits are strongly autocorrelated, and single "
+        "not an estimate. Successive waits are strongly autocorrelated, and single "
         "runs measured here landed up to 13% off the true mean while looking "
         "convergent.")
     add("")
