@@ -17,7 +17,7 @@ Frameworks: Little's Law and the VUT equation, Operations Management
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 
 @dataclass(frozen=True)
@@ -72,6 +72,10 @@ class Workload:
         """The floor below which no amount of patience helps."""
         return math.floor(self.offered_load) + 1
 
+    def at_utilization(self, rho: float) -> "Workload":
+        """The same stage under the demand that would keep it rho busy."""
+        return replace(self, arrival_rate=rho * self.servers / self.service_time)
+
 
 def erlang_c(servers: int, offered_load: float) -> float:
     """Probability an arriving batch has to wait at all (Erlang C).
@@ -118,16 +122,8 @@ def kingman_wait_time(workload: Workload) -> float:
     """
     if not workload.is_stable:
         return math.inf
-
-    variability = (workload.arrival_cv**2 + workload.service_cv**2) / 2.0
-    rho = workload.utilization
-    if workload.servers == 1:
-        utilization_term = rho / (1.0 - rho)
-    else:
-        # Standard multi-server correction to the single-server U term.
-        exponent = math.sqrt(2.0 * (workload.servers + 1.0)) - 1.0
-        utilization_term = rho**exponent / (workload.servers * (1.0 - rho))
-    return variability * utilization_term * workload.service_time
+    variability, utilization_term, service_time = vut_factors(workload)
+    return variability * utilization_term * service_time
 
 
 def vut_factors(workload: Workload) -> tuple[float, float, float]:
@@ -143,6 +139,7 @@ def vut_factors(workload: Workload) -> tuple[float, float, float]:
     if workload.servers == 1:
         utilization_term = rho / (1.0 - rho)
     else:
+        # Standard multi-server correction to the single-server U term.
         exponent = math.sqrt(2.0 * (workload.servers + 1.0)) - 1.0
         utilization_term = rho**exponent / (workload.servers * (1.0 - rho))
     return variability, utilization_term, workload.service_time
@@ -175,8 +172,6 @@ def servers_for_target_latency(
     if target_minutes <= workload.service_time:
         return None
 
-    from dataclasses import replace
-
     for servers in range(workload.servers_needed_for_stability, max_servers + 1):
         candidate = replace(workload, servers=servers)
         if sojourn_time(candidate) <= target_minutes:
@@ -196,12 +191,10 @@ def utilization_for_target_latency(
     if target_minutes <= workload.service_time:
         return None
 
-    from dataclasses import replace
-
     low, high = 1e-6, 0.999999
     for _ in range(200):
         mid = (low + high) / 2.0
-        candidate = replace(workload, arrival_rate=mid * workload.servers / workload.service_time)
+        candidate = workload.at_utilization(mid)
         if sojourn_time(candidate) > target_minutes:
             high = mid
         else:

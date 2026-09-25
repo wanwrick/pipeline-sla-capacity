@@ -10,14 +10,12 @@ Management (Prof. Yao Cui, Cornell).
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 
 from .queueing import (
     Workload,
     kingman_wait_time,
-    queue_length,
-    servers_for_target_latency,
-    sojourn_time,
     utilization_for_target_latency,
     vut_factors,
 )
@@ -43,10 +41,6 @@ class StageResult:
     @property
     def name(self) -> str:
         return self.stage.name
-
-    @property
-    def is_stable(self) -> bool:
-        return self.stage.workload.is_stable
 
 
 @dataclass
@@ -91,105 +85,55 @@ class Pipeline:
     sla_minutes: float
     stages: list[Stage]
 
+    @property
+    def total_servers(self) -> int:
+        return sum(s.workload.servers for s in self.stages)
+
     def evaluate(self) -> PipelineResult:
         results = []
         for stage in self.stages:
-            variability, utilization_term, _ = vut_factors(stage.workload)
+            workload = stage.workload
+            variability, utilization_term, _ = vut_factors(workload)
+            wait = kingman_wait_time(workload)
             results.append(
                 StageResult(
                     stage=stage,
-                    wait_minutes=kingman_wait_time(stage.workload),
-                    sojourn_minutes=sojourn_time(stage.workload),
-                    utilization=stage.workload.utilization,
-                    queue_depth=queue_length(stage.workload),
+                    wait_minutes=wait,
+                    sojourn_minutes=wait + workload.service_time,
+                    utilization=workload.utilization,
+                    queue_depth=workload.arrival_rate * wait,  # Little's Law
                     variability=variability,
                     utilization_term=utilization_term,
                 )
             )
         return PipelineResult(stages=results, sla_minutes=self.sla_minutes)
 
-    def with_servers(self, stage_name: str, servers: int) -> "Pipeline":
+    def with_workload(self, stage_name: str, **changes) -> "Pipeline":
+        """One stage's workload with the given fields replaced. The rest is untouched."""
         stages = [
-            replace(s, workload=replace(s.workload, servers=servers))
-            if s.name == stage_name
-            else s
+            replace(s, workload=replace(s.workload, **changes)) if s.name == stage_name else s
             for s in self.stages
         ]
         return replace(self, stages=stages)
 
+    def with_servers(self, stage_name: str, servers: int) -> "Pipeline":
+        return self.with_workload(stage_name, servers=servers)
+
     def with_service_cv(self, stage_name: str, cv: float) -> "Pipeline":
-        stages = [
-            replace(s, workload=replace(s.workload, service_cv=cv))
-            if s.name == stage_name
-            else s
-            for s in self.stages
-        ]
-        return replace(self, stages=stages)
+        return self.with_workload(stage_name, service_cv=cv)
+
+    def _with_each_workload(self, change: Callable[[Workload], Workload]) -> "Pipeline":
+        return replace(self, stages=[replace(s, workload=change(s.workload)) for s in self.stages])
+
+    def with_server_multiplier(self, multiplier: int) -> "Pipeline":
+        """Scale capacity at every stage, for the queueing-removed view."""
+        return self._with_each_workload(lambda w: replace(w, servers=w.servers * multiplier))
 
     def with_arrival_multiplier(self, multiplier: float) -> "Pipeline":
         """Scale demand across every stage, for a peak-load view."""
-        stages = [
-            replace(s, workload=replace(s.workload, arrival_rate=s.workload.arrival_rate * multiplier))
-            for s in self.stages
-        ]
-        return replace(self, stages=stages)
-
-
-@dataclass
-class Addition:
-    stage_name: str
-    servers_added: int
-    minutes_saved: float
-    latency_after: float
-
-
-def cheapest_path_to_sla(pipeline: Pipeline, *, max_additions: int = 60) -> list[Addition]:
-    """Add one worker at a time, always to the stage that gains the most.
-
-    A greedy walk rather than an optimizer, deliberately. The output is a
-    sequence a team can actually execute and stop partway through, and each
-    step states what the next worker buys. An optimizer returns a target that
-    has to be funded all at once.
-    """
-    plan: list[Addition] = []
-    current = pipeline
-    latency = current.evaluate().total_latency
-
-    for _ in range(max_additions):
-        result = current.evaluate()
-        if result.meets_sla:
-            break
-
-        best: tuple[float, Stage, Pipeline] | None = None
-        for stage in current.stages:
-            candidate = current.with_servers(stage.name, stage.workload.servers + 1)
-            gain = latency - candidate.evaluate().total_latency
-            if gain > 0 and (best is None or gain > best[0]):
-                best = (gain, stage, candidate)
-
-        if best is None:
-            break  # No single addition helps; the constraint is elsewhere.
-
-        gain, stage, current = best
-        latency = current.evaluate().total_latency
-        plan.append(
-            Addition(
-                stage_name=stage.name,
-                servers_added=1,
-                minutes_saved=gain,
-                latency_after=latency,
-            )
+        return self._with_each_workload(
+            lambda w: replace(w, arrival_rate=w.arrival_rate * multiplier)
         )
-
-    return plan
-
-
-def consolidate(plan: list[Addition]) -> dict[str, int]:
-    """Collapse the step-by-step plan into workers per stage."""
-    totals: dict[str, int] = {}
-    for addition in plan:
-        totals[addition.stage_name] = totals.get(addition.stage_name, 0) + addition.servers_added
-    return totals
 
 
 def stage_target_utilizations(pipeline: Pipeline) -> dict[str, float | None]:
@@ -209,13 +153,3 @@ def stage_target_utilizations(pipeline: Pipeline) -> dict[str, float | None]:
             stage_result.stage.workload, budget
         )
     return targets
-
-
-def servers_to_hold_peak(pipeline: Pipeline, peak_multiplier: float) -> dict[str, int | None]:
-    """Servers each stage needs to hold its current latency at peak demand."""
-    baseline = {s.name: sojourn_time(s.workload) for s in pipeline.stages}
-    peaked = pipeline.with_arrival_multiplier(peak_multiplier)
-    return {
-        s.name: servers_for_target_latency(s.workload, baseline[s.name])
-        for s in peaked.stages
-    }

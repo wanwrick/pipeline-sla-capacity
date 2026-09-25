@@ -8,17 +8,14 @@ is only safe while the two agree on the statistic they both compute.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from sla_capacity.economics import cheapest, cost_curve, utilization_cliff
-from sla_capacity.loader import load_costs, load_pipeline
-from sla_capacity.pipeline import (
-    cheapest_path_to_sla,
-    consolidate,
-    stage_target_utilizations,
-)
+from sla_capacity.loader import load_costs
+from sla_capacity.pipeline import stage_target_utilizations
 from sla_capacity.planning import (
-    achievable_sla,
     attainment_ceiling,
     plan_for_attainment,
     variability_alternative,
@@ -26,12 +23,6 @@ from sla_capacity.planning import (
 from sla_capacity.queueing import Workload, mmc_wait_time
 from sla_capacity.report import render
 from sla_capacity.simulate import attainment_curve, simulate_pipeline, simulate_stage
-
-
-@pytest.fixture(scope="module")
-def pipeline():
-    return load_pipeline()
-
 
 # --- the cross-check the whole repo depends on -----------------------------------
 
@@ -46,7 +37,7 @@ def test_simulation_reproduces_the_closed_form(servers, rho):
     """
     w = Workload(arrival_rate=rho * servers / 2.0, service_time=2.0, servers=servers)
     exact = mmc_wait_time(w)
-    simulated = simulate_stage(w, batches=25_000, warmup=2_500, replications=16).mean_wait
+    simulated = simulate_stage(w, batches=25_000, replications=16).mean_wait
     assert simulated == pytest.approx(exact, rel=0.06)
 
 
@@ -58,24 +49,24 @@ def test_simulating_an_unstable_queue_raises():
 
 def test_replications_are_reproducible():
     w = Workload(arrival_rate=0.3, service_time=2.0, servers=1)
-    first = simulate_stage(w, batches=3_000, warmup=300, replications=3, seed=7)
-    second = simulate_stage(w, batches=3_000, warmup=300, replications=3, seed=7)
+    first = simulate_stage(w, batches=3_000, replications=3, seed=7)
+    second = simulate_stage(w, batches=3_000, replications=3, seed=7)
     assert first.sojourns == second.sojourns
 
 
 def test_more_replications_yield_more_samples():
     w = Workload(arrival_rate=0.3, service_time=2.0, servers=1)
-    one = simulate_stage(w, batches=2_000, warmup=200, replications=1)
-    four = simulate_stage(w, batches=2_000, warmup=200, replications=4)
+    one = simulate_stage(w, batches=2_000, replications=1)
+    four = simulate_stage(w, batches=2_000, replications=4)
     assert four.completed == 4 * one.completed
 
 
 def test_zero_variability_produces_no_queue_in_simulation():
-    """A metronome feeding a metronome never waits. A good sanity check on _sample."""
+    """A metronome feeding a metronome never waits. A good sanity check on the sampler."""
     w = Workload(
         arrival_rate=0.4, service_time=2.0, servers=1, arrival_cv=0.0, service_cv=0.0
     )
-    assert simulate_stage(w, batches=2_000, warmup=200).mean_wait == pytest.approx(0.0, abs=1e-9)
+    assert simulate_stage(w, batches=2_000).mean_wait == pytest.approx(0.0, abs=1e-9)
 
 
 # --- pipeline structure ------------------------------------------------------------
@@ -129,47 +120,42 @@ def test_the_mean_meets_the_sla(pipeline):
 
 def test_attainment_does_not(pipeline):
     """The other half. If these two ever agree, the memo needs rewriting."""
-    simulated = simulate_pipeline(pipeline, batches=6_000, warmup=600, replications=4)
+    simulated = simulate_pipeline(pipeline, batches=6_000, replications=4)
     assert simulated.attainment(pipeline.sla_minutes) < 0.90
 
 
-def test_capacity_alone_cannot_reach_the_target(pipeline):
+def test_capacity_alone_cannot_reach_the_target(pipeline, ceiling):
     """The claim the recommendation rests on, asserted rather than asserted-in-prose."""
-    ceiling = attainment_ceiling(pipeline, batches=6_000, replications=3)
     assert not ceiling.is_reachable
     assert ceiling.floor_p99 > pipeline.sla_minutes
 
 
-def test_the_service_time_floor_is_the_sum_of_service_times(pipeline):
+def test_the_service_time_floor_is_the_sum_of_service_times(pipeline, ceiling):
     """With queueing gone, the mean is just the sum of the stages' service times."""
     expected = sum(s.workload.service_time for s in pipeline.stages)
-    ceiling = attainment_ceiling(pipeline, batches=6_000, replications=3)
     assert ceiling.floor_mean == pytest.approx(expected, rel=0.05)
 
 
-def test_achievable_sla_is_worse_at_a_higher_attainment_target(pipeline):
-    at_95 = achievable_sla(pipeline, 0.95, batches=5_000, replications=3)
-    at_99 = achievable_sla(pipeline, 0.99, batches=5_000, replications=3)
-    assert at_99 > at_95 > pipeline.sla_minutes
+def test_the_sla_this_design_could_hold_is_worse_at_a_higher_attainment(pipeline, ceiling):
+    assert ceiling.floor_p99 > ceiling.floor_p95 > pipeline.sla_minutes
 
 
 # --- planning -------------------------------------------------------------------------
 
 
-def test_the_attainment_plan_improves_attainment(pipeline):
-    plan = plan_for_attainment(
-        pipeline, target=0.99, max_additions=6, batches=4_000, replications=2
-    )
+def test_the_attainment_plan_improves_attainment(plan):
     assert plan.final_attainment > plan.start_attainment
-    assert plan.total_added == len(plan.steps)
 
 
-def test_the_attainment_plan_gives_up_rather_than_overspending(pipeline):
+def test_the_attainment_plan_gives_up_rather_than_overspending(plan):
     """It must report failure, not keep adding workers that buy nothing."""
-    plan = plan_for_attainment(
-        pipeline, target=0.99, max_additions=6, batches=4_000, replications=2
-    )
     assert not plan.reached_target
+
+
+def test_servers_added_counts_the_steps_per_stage(plan):
+    assert plan.total_added > 0
+    assert sum(plan.servers_added.values()) == plan.total_added
+    assert set(plan.servers_added) == {step.stage_name for step in plan.steps}
 
 
 def test_planning_stops_immediately_when_the_target_is_already_met(pipeline):
@@ -185,22 +171,6 @@ def test_cutting_variability_improves_attainment_without_capacity(pipeline):
         pipeline, "Gold conform", 0.4, batches=4_000, replications=3
     )
     assert after > before
-
-
-def test_mean_based_planner_stops_when_the_mean_already_passes(pipeline):
-    """Documents why planning.py exists: this planner is satisfied too early."""
-    assert cheapest_path_to_sla(pipeline) == []
-
-
-def test_consolidate_counts_additions_per_stage():
-    from sla_capacity.pipeline import Addition
-
-    plan = [
-        Addition("a", 1, 1.0, 10.0),
-        Addition("b", 1, 0.5, 9.5),
-        Addition("a", 1, 0.3, 9.2),
-    ]
-    assert consolidate(plan) == {"a": 2, "b": 1}
 
 
 # --- targets and peak -------------------------------------------------------------------
@@ -240,11 +210,11 @@ def test_the_cliff_is_steeper_at_the_top(pipeline):
     assert rows[0.95] - rows[0.90] > rows[0.80] - rows[0.70]
 
 
-def test_cost_curve_has_a_minimum(pipeline):
+def test_cost_curve_prices_every_stable_server_count(pipeline):
     costs = load_costs()
     points = cost_curve(pipeline, costs, "Gold conform", range(3, 8), batches=2_500)
-    assert points
-    assert cheapest(points) is not None
+    assert [p.servers for p in points] == list(range(3, 8))
+    assert cheapest(points).total_cost == min(p.total_cost for p in points)
 
 
 def test_breach_cost_falls_as_attainment_rises():
@@ -262,28 +232,34 @@ def test_the_sla_credit_applies_below_the_threshold():
 # --- report ---------------------------------------------------------------------------------
 
 
-def test_report_renders_and_leads_with_the_recommendation(pipeline):
-    result = pipeline.evaluate()
-    simulated = simulate_pipeline(pipeline, batches=3_000, warmup=300, replications=2)
-    plan = plan_for_attainment(pipeline, 0.99, max_additions=3, batches=2_500, replications=2)
-    ceiling = attainment_ceiling(pipeline, batches=3_000, replications=2)
+def _memo_for(pipeline):
+    """Render the memo on a small simulation budget."""
     costs = load_costs()
-
-    memo = render(
+    bottleneck = pipeline.evaluate().bottleneck.name
+    return render(
         pipeline,
-        result,
-        simulated,
-        plan,
-        ceiling,
-        {0.95: 23.0, 0.99: 32.0},
-        variability_alternative(pipeline, "Gold conform", 0.5, batches=2_500, replications=2),
+        pipeline.evaluate(),
+        simulate_pipeline(pipeline, batches=3_000, replications=2),
+        plan_for_attainment(pipeline, 0.99, max_additions=3, batches=2_500, replications=2),
+        attainment_ceiling(pipeline, batches=3_000, replications=2),
+        variability_alternative(pipeline, bottleneck, 0.5, batches=2_500, replications=2),
         attainment_curve(pipeline, [1.0, 1.2], batches=2_500, replications=2),
-        utilization_cliff(pipeline, "Gold conform"),
-        cost_curve(pipeline, costs, "Gold conform", range(4, 7), batches=2_500),
+        utilization_cliff(pipeline, bottleneck),
+        cost_curve(pipeline, costs, bottleneck, range(4, 7), batches=2_500),
         costs,
         stage_target_utilizations(pipeline),
     )
 
+
+def test_report_renders_and_leads_with_the_recommendation(pipeline):
+    memo = _memo_for(pipeline)
     assert memo.startswith("# Customer 360 freshness")
     assert memo.index("## Recommendation") < memo.index("## Where the time goes")
     assert "—" not in memo  # house style: no em dash
+
+
+def test_report_reads_as_a_decision_when_the_target_is_already_met(pipeline):
+    """A generous SLA takes the other branch, which must not say 'Add 0 workers: .'"""
+    memo = _memo_for(replace(pipeline, sla_minutes=60.0))
+    assert "No additional capacity is needed" in memo
+    assert "Add 0 workers" not in memo

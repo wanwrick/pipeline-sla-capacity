@@ -20,7 +20,6 @@ from sla_capacity.loader import (
 )
 from sla_capacity.pipeline import stage_target_utilizations
 from sla_capacity.planning import (
-    achievable_sla,
     attainment_ceiling,
     plan_for_attainment,
     variability_alternative,
@@ -52,61 +51,42 @@ def main() -> int:
         for stage in result.stages:
             print(
                 f"{stage.name:<22}{stage.stage.workload.servers:>8}"
-                f"{pct(stage.utilization, 0):>8}{stage.wait_minutes:>7.1f}m"
+                f"{pct(stage.utilization):>8}{stage.wait_minutes:>7.1f}m"
                 f"{stage.sojourn_minutes:>7.1f}m"
-                f"{pct(result.share_of_latency(stage), 0):>8}"
+                f"{pct(result.share_of_latency(stage)):>8}"
             )
         print(f"\nEnd to end: {minutes(result.total_latency)} (mean only)")
         print(f"Bottleneck: {result.bottleneck.name}")
         print("Run without --summary for attainment, which is the number that matters.")
         return 0
 
-    # Simulation budget. The fast path trades precision for a quick look.
+    # Simulation budget. The fast path trades precision for a quick look, and
+    # the exploratory steps run on half the budget of the baseline.
     batches = 4_000 if args.fast else config["batches"]
     reps = 2 if args.fast else 6
     seed = config["seed"]
-    common = {"batches": batches, "replications": reps, "seed": seed}
+    full = {"batches": batches, "replications": reps, "seed": seed}
+    half = {"batches": max(3_000, batches // 2), "replications": max(2, reps // 2), "seed": seed}
 
     print("Simulating baseline...")
-    simulated = simulate_pipeline(
-        pipeline, batches=batches, warmup=batches // 10, seed=seed, replications=reps
-    )
+    simulated = simulate_pipeline(pipeline, **full)
 
     print("Checking whether capacity can reach the target at all...")
-    ceiling = attainment_ceiling(pipeline, **common)
-    achievable = {
-        level: achievable_sla(pipeline, level, **common) for level in (0.95, args.target)
-    }
+    ceiling = attainment_ceiling(pipeline, target_attainment=args.target, **full)
 
     print("Planning capacity additions...")
     plan = plan_for_attainment(
-        pipeline,
-        target=args.target,
-        max_additions=12 if args.fast else 20,
-        batches=max(3_000, batches // 2),
-        replications=max(2, reps // 2),
-        seed=seed,
+        pipeline, target=args.target, max_additions=12 if args.fast else 20, **half
     )
 
     bottleneck = result.bottleneck
     print("Pricing the variability alternative...")
     variability_gain = variability_alternative(
-        pipeline,
-        bottleneck.name,
-        bottleneck.stage.workload.service_cv / 2.0,
-        batches=max(3_000, batches // 2),
-        replications=max(2, reps // 2),
-        seed=seed,
+        pipeline, bottleneck.name, bottleneck.stage.workload.service_cv / 2.0, **half
     )
 
     print("Running the peak-load curve...")
-    attainment = attainment_curve(
-        pipeline,
-        load_peak_multipliers(args.scenario),
-        batches=max(3_000, batches // 2),
-        seed=seed,
-        replications=max(2, reps // 2),
-    )
+    attainment = attainment_curve(pipeline, load_peak_multipliers(args.scenario), **half)
 
     print("Sweeping cost against capacity...")
     current = bottleneck.stage.workload.servers
@@ -125,14 +105,12 @@ def main() -> int:
         simulated,
         plan,
         ceiling,
-        achievable,
         variability_gain,
         attainment,
         utilization_cliff(pipeline, bottleneck.name),
         points,
         costs,
         stage_target_utilizations(pipeline),
-        target_attainment=args.target,
     )
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
@@ -142,8 +120,8 @@ def main() -> int:
     print(f"Wrote {args.out}")
     print(f"Mean {minutes(result.total_latency)} against a "
           f"{pipeline.sla_minutes:.0f} min SLA. Attainment "
-          f"{pct(simulated.attainment(pipeline.sla_minutes), 0)}, "
-          f"ceiling {pct(ceiling.attainment_ceiling, 0)} at unlimited capacity.")
+          f"{pct(simulated.attainment(pipeline.sla_minutes))}, "
+          f"ceiling {pct(ceiling.attainment_ceiling)} at unlimited capacity.")
     return 0
 
 

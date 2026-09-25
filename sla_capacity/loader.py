@@ -10,6 +10,7 @@ import yaml
 from .economics import CostModel
 from .pipeline import Pipeline, Stage
 from .queueing import Workload
+from .simulate import DEFAULT_SEED
 
 SCENARIO_DIR = Path(__file__).resolve().parents[1] / "scenarios"
 DEFAULT_SCENARIO = SCENARIO_DIR / "customer_360.yaml"
@@ -56,8 +57,7 @@ def load_simulation_config(path: Path = DEFAULT_SCENARIO) -> dict[str, int]:
     raw = load_raw(path).get("simulation", {})
     return {
         "batches": int(raw.get("batches", 20_000)),
-        "warmup": int(raw.get("warmup", 2_000)),
-        "seed": int(raw.get("seed", 20260916)),
+        "seed": int(raw.get("seed", DEFAULT_SEED)),
     }
 
 

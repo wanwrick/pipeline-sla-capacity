@@ -17,10 +17,14 @@ Frameworks: newsvendor and cost-of-capacity trade-offs, Operations Management
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 from .pipeline import Pipeline
-from .simulate import simulate_pipeline
+from .queueing import sojourn_time
+from .simulate import DEFAULT_SEED, sla_attainment
+
+# Indexed to 70% because that is where most capacity plans think they are safe.
+UTILIZATION_LEVELS = (0.50, 0.60, 0.70, 0.80, 0.85, 0.90, 0.95, 0.98)
 
 
 @dataclass(frozen=True)
@@ -55,10 +59,6 @@ class CostPoint:
         return self.capacity_cost + self.breach_cost
 
 
-def total_servers(pipeline: Pipeline) -> int:
-    return sum(s.workload.servers for s in pipeline.stages)
-
-
 def cost_curve(
     pipeline: Pipeline,
     costs: CostModel,
@@ -66,7 +66,7 @@ def cost_curve(
     server_range: range,
     *,
     batches: int = 6_000,
-    seed: int = 20260916,
+    seed: int = DEFAULT_SEED,
 ) -> list[CostPoint]:
     """Total cost against capacity at one stage.
 
@@ -81,16 +81,13 @@ def cost_curve(
         if not stage.workload.is_stable:
             continue
 
-        result = simulate_pipeline(
-            candidate, batches=batches, warmup=batches // 10, seed=seed
-        )
-        attainment = result.attainment(pipeline.sla_minutes)
+        attainment = sla_attainment(candidate, batches=batches, seed=seed)
         points.append(
             CostPoint(
                 servers=servers,
                 utilization=stage.workload.utilization,
                 attainment=attainment,
-                capacity_cost=costs.capacity_cost(total_servers(candidate)),
+                capacity_cost=costs.capacity_cost(candidate.total_servers),
                 breach_cost=costs.breach_cost_at(attainment),
             )
         )
@@ -128,31 +125,9 @@ def utilization_cliff(pipeline: Pipeline, stage_name: str) -> list[UtilizationRo
     rho/(1-rho), so the last few points of utilization cost more than all the
     earlier ones combined.
     """
-    stage = next(s for s in pipeline.stages if s.name == stage_name)
-    rows: list[UtilizationRow] = []
-    baseline: float | None = None
-
-    for utilization in (0.50, 0.60, 0.70, 0.80, 0.85, 0.90, 0.95, 0.98):
-        arrival = utilization * stage.workload.servers / stage.workload.service_time
-        candidate = pipeline.with_servers(stage_name, stage.workload.servers)
-        candidate = replace(
-            candidate,
-            stages=[
-                replace(s, workload=replace(s.workload, arrival_rate=arrival))
-                if s.name == stage_name
-                else s
-                for s in candidate.stages
-            ],
-        )
-        latency = next(
-            r.sojourn_minutes
-            for r in candidate.evaluate().stages
-            if r.name == stage_name
-        )
-        if abs(utilization - 0.70) < 1e-9:
-            baseline = latency
-        rows.append(UtilizationRow(utilization, latency, 0.0))
-
-    if baseline:
-        rows = [replace(r, relative_to_70=r.latency_minutes / baseline) for r in rows]
-    return rows
+    workload = next(s.workload for s in pipeline.stages if s.name == stage_name)
+    latency = {rho: sojourn_time(workload.at_utilization(rho)) for rho in UTILIZATION_LEVELS}
+    return [
+        UtilizationRow(rho, minutes, minutes / latency[0.70])
+        for rho, minutes in latency.items()
+    ]

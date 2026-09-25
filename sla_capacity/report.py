@@ -19,7 +19,7 @@ def minutes(value: float) -> str:
     return f"{value:.1f} min"
 
 
-def pct(value: float | None, places: int = 1) -> str:
+def pct(value: float | None, places: int = 0) -> str:
     return "n/a" if value is None else f"{value * 100:.{places}f}%"
 
 
@@ -31,22 +31,27 @@ def money(value: float) -> str:
     return f"{sign}${magnitude / 1_000:.1f}K"
 
 
+def count_words(n: int) -> str:
+    """Small counts read better as words in prose: four stages, not 4 stages."""
+    words = ("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine")
+    return words[n] if n < len(words) else str(n)
+
+
 def render(
     pipeline: Pipeline,
     result: PipelineResult,
     simulated: SimulationResult,
     plan: AttainmentPlan,
     ceiling: CapacityCeiling,
-    achievable: dict[float, float],
     variability_gain: tuple[float, float],
     attainment: list[tuple[float, float]],
     cliff: list[UtilizationRow],
     cost_points: list[CostPoint],
     costs: CostModel,
     target_utilizations: dict[str, float | None],
-    target_attainment: float = 0.99,
 ) -> str:
     sla = pipeline.sla_minutes
+    target = ceiling.target_attainment
     observed = simulated.attainment(sla)
     bottleneck = result.bottleneck
     best = cheapest(cost_points)
@@ -70,14 +75,14 @@ def render(
             f"target.** Mean end-to-end latency is {minutes(result.total_latency)} "
             f"against a {sla:.0f}-minute promise, which reads as "
             f"{minutes(result.headroom_minutes)} of headroom on a capacity report. "
-            f"Attainment is {pct(observed, 0)}.")
+            f"Attainment is {pct(observed)}.")
         add("")
-        fleet = sum(s.stage.workload.servers for s in result.stages)
+        fleet = pipeline.total_servers
         add(f"Adding {plan.total_added} workers, taking the fleet from {fleet} to "
             f"{fleet + plan.total_added}, moves attainment from "
-            f"{pct(plan.start_attainment, 0)} to {pct(plan.final_attainment, 0)} and "
+            f"{pct(plan.start_attainment)} to {pct(plan.final_attainment)} and "
             f"then stops improving. Drive queueing out entirely with unlimited "
-            f"capacity and the ceiling is **{pct(ceiling.attainment_ceiling, 0)}**.")
+            f"capacity and the ceiling is **{pct(ceiling.attainment_ceiling)}**.")
         add("")
         add(f"The reason is that the service times alone breach the promise. With "
             f"zero waiting, the pipeline's own p95 is {minutes(ceiling.floor_p95)} "
@@ -88,29 +93,33 @@ def render(
         add("**Three real options, in the order they should be considered.**")
         add("")
         add(f"1. **Re-price the promise.** This design holds "
-            f"{minutes(achievable.get(0.95, 0))} at 95% attainment and "
-            f"{minutes(achievable.get(0.99, 0))} at 99%. A number the pipeline can "
+            f"{minutes(ceiling.floor_p95)} at 95% attainment and "
+            f"{minutes(ceiling.floor_p99)} at 99%. A number the pipeline can "
             f"hold beats a number that sounds good and breaches weekly.")
         before, after = variability_gain
         add(f"2. **Cut variability before buying capacity.** Halving service "
             f"variability at {bottleneck.name} moves attainment from "
-            f"{pct(before, 0)} to {pct(after, 0)} with no additional compute. "
+            f"{pct(before)} to {pct(after)} with no additional compute. "
             f"Variability enters the wait linearly, so this is the cheapest lever "
             f"in the model and the one least often pulled.")
         add(f"3. **Re-engineer service time.** The mean floor is "
-            f"{minutes(ceiling.floor_mean)} across four stages, so no single stage "
+            f"{minutes(ceiling.floor_mean)} across {count_words(len(result.stages))} "
+            f"stages, so no single stage "
             f"cut to zero reaches the target. This is a multi-stage redesign, and "
             f"it should be scoped as one rather than discovered halfway through.")
-    else:
-        added = plan.servers_added
-        detail = ", ".join(f"{n} to {name}" for name, n in added.items())
+    elif plan.total_added:
+        detail = ", ".join(f"{n} to {name}" for name, n in plan.servers_added.items())
         add(f"**Add {plan.total_added} workers: {detail}.** Attainment moves from "
-            f"{pct(plan.start_attainment, 0)} to {pct(plan.final_attainment, 0)} "
-            f"against the {pct(target_attainment, 0)} target, at "
+            f"{pct(plan.start_attainment)} to {pct(plan.final_attainment)} "
+            f"against the {pct(target)} target, at "
             f"{money(plan.total_added * costs.cost_per_server_month)} a month.")
+    else:
+        add(f"**No additional capacity is needed.** Attainment is "
+            f"{pct(plan.start_attainment)} against the {pct(target)} target "
+            f"with the current fleet.")
         add("")
         add(f"Mean latency is {minutes(result.total_latency)} today, inside the "
-            f"promise. That is not the same as meeting it: only {pct(observed, 0)} "
+            f"promise. That is not the same as meeting it: only {pct(observed)} "
             f"of batches land inside the window, because an SLA is a percentile and "
             f"a mean says nothing about the tail.")
     add("")
@@ -127,7 +136,7 @@ def render(
         f"{'outside' if simulated.percentile(0.95) > sla else 'inside'} |")
     add(f"| p99 | {minutes(simulated.percentile(0.99))} | "
         f"{'outside' if simulated.percentile(0.99) > sla else 'inside'} |")
-    add(f"| Attainment | {pct(observed, 0)} | target {pct(target_attainment, 0)} |")
+    add(f"| Attainment | {pct(observed)} | target {pct(target)} |")
     add("")
     add("A dashboard reporting mean freshness would show this pipeline green every "
         "day it breached. That gap between the reported metric and the promised one "
@@ -145,14 +154,14 @@ def render(
     add("|---|---:|---:|---:|---:|---:|---:|")
     for stage in result.stages:
         workload = stage.stage.workload
-        add(f"| {stage.name} | {workload.servers} | {pct(stage.utilization, 0)} "
+        add(f"| {stage.name} | {workload.servers} | {pct(stage.utilization)} "
             f"| {minutes(stage.wait_minutes)} | {minutes(workload.service_time)} "
             f"| {minutes(stage.sojourn_minutes)} "
-            f"| {pct(result.share_of_latency(stage), 0)} |")
+            f"| {pct(result.share_of_latency(stage))} |")
     add("")
     same = bottleneck.name == result.busiest.name
     add(f"**{bottleneck.name} is the constraint**, carrying "
-        f"{pct(result.share_of_latency(bottleneck), 0)} of end-to-end latency. "
+        f"{pct(result.share_of_latency(bottleneck))} of end-to-end latency. "
         + ("It is also the busiest stage." if same else
            f"The busiest stage is {result.busiest.name}, which is not the same "
            f"thing: a stage can run hot and still finish fast, and a capacity plan "
@@ -193,7 +202,7 @@ def render(
     add("| Utilization | Latency | Relative to 70% |")
     add("|---:|---:|---:|")
     for row in cliff:
-        add(f"| {pct(row.utilization, 0)} | {minutes(row.latency_minutes)} "
+        add(f"| {pct(row.utilization)} | {minutes(row.latency_minutes)} "
             f"| {row.relative_to_70:.2f}x |")
     add("")
     add("The last few points of utilization are the most expensive capacity in the "
@@ -207,8 +216,8 @@ def render(
     for stage in result.stages:
         target = target_utilizations.get(stage.name)
         add(f"| {stage.name} | "
-            f"{pct(target, 0) if target is not None else 'not reachable'} "
-            f"| {pct(stage.utilization, 0)} |")
+            f"{pct(target) if target is not None else 'not reachable'} "
+            f"| {pct(stage.utilization)} |")
     add("")
     add("These are instructions. \"Add capacity when latency degrades\" is not, "
         "because by then the queue has already formed.")
@@ -221,7 +230,7 @@ def render(
     add("|---:|---:|")
     for multiplier, share in attainment:
         note = " (unstable)" if share == 0.0 else ""
-        add(f"| {multiplier:.1f}x | {pct(share, 0)}{note} |")
+        add(f"| {multiplier:.1f}x | {pct(share)}{note} |")
     add("")
     first_bad = next((m for m, a in attainment if a < 0.50), None)
     if first_bad is not None:
@@ -235,23 +244,29 @@ def render(
     add("")
     add(f"Workers cost {money(costs.cost_per_server_month)} a month each. A late "
         f"batch costs {money(costs.breach_cost)}, and attainment below "
-        f"{pct(costs.sla_credit_threshold, 0)} triggers a {money(costs.sla_credit)} "
+        f"{pct(costs.sla_credit_threshold)} triggers a {money(costs.sla_credit)} "
         f"credit. Sweeping capacity at {bottleneck.name}:")
     add("")
     add("| Workers | Utilization | Attainment | Capacity | Breach | Total |")
     add("|---:|---:|---:|---:|---:|---:|")
     for point in cost_points:
         marker = " **<-**" if best and point.servers == best.servers else ""
-        add(f"| {point.servers}{marker} | {pct(point.utilization, 0)} "
-            f"| {pct(point.attainment, 0)} | {money(point.capacity_cost)} "
+        add(f"| {point.servers}{marker} | {pct(point.utilization)} "
+            f"| {pct(point.attainment)} | {money(point.capacity_cost)} "
             f"| {money(point.breach_cost)} | {money(point.total_cost)} |")
     add("")
     if best:
+        cleared = next(
+            (p for p in cost_points if p.attainment >= costs.sla_credit_threshold), None
+        )
         add(f"Total cost bottoms out at **{best.servers} workers on "
-            f"{bottleneck.name}**, at {pct(best.utilization, 0)} utilization and "
-            f"{pct(best.attainment, 0)} attainment. The credit threshold is never "
-            f"cleared at any capacity in this range. That is the same finding as "
-            f"above, arriving through the invoice instead of the queue.")
+            f"{bottleneck.name}**, at {pct(best.utilization)} utilization and "
+            f"{pct(best.attainment)} attainment. "
+            + (f"The credit threshold is first cleared at {cleared.servers} workers."
+               if cleared else
+               "The credit threshold is never cleared at any capacity in this range. "
+               "That is the same finding as above, arriving through the invoice "
+               "instead of the queue."))
     add("")
 
     # --- Method ------------------------------------------------------------------------

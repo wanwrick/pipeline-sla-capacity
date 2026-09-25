@@ -17,8 +17,8 @@ sys.path.insert(0, str(ROOT))
 
 from sla_capacity.economics import utilization_cliff  # noqa: E402
 from sla_capacity.loader import load_pipeline  # noqa: E402
-from sla_capacity.planning import attainment_ceiling  # noqa: E402
-from sla_capacity.simulate import simulate_pipeline  # noqa: E402
+from sla_capacity.report import count_words  # noqa: E402
+from sla_capacity.simulate import DEFAULT_SEED, simulate_pipeline  # noqa: E402
 
 WIDTH, HEIGHT = 1240, 600
 PAD_T, PAD_B = 128, 96
@@ -36,26 +36,26 @@ GRID = "rgba(241,236,220,0.13)"
 TARGET = 0.99
 BATCHES = 6_000
 REPLICATIONS = 4
-SEED = 20260916
 
 
 def main() -> None:
     pipeline = load_pipeline()
-    base_fleet = sum(s.workload.servers for s in pipeline.stages)
-    ceiling = attainment_ceiling(pipeline, batches=BATCHES, replications=REPLICATIONS)
+    result = pipeline.evaluate()
+    base_fleet = pipeline.total_servers
 
-    # Scale the whole fleet up and measure attainment at each size.
+    # Scale the whole fleet up and measure attainment at each size. The last
+    # point has queueing driven out entirely, so it is also the ceiling.
     points: list[tuple[int, float]] = []
     for multiple in (1, 2, 3, 4, 6, 8, 12):
-        scaled = pipeline
-        for stage in pipeline.stages:
-            scaled = scaled.with_servers(stage.name, stage.workload.servers * multiple)
-        result = simulate_pipeline(
-            scaled, batches=BATCHES, warmup=BATCHES // 10, seed=SEED, replications=REPLICATIONS
+        scaled = pipeline.with_server_multiplier(multiple)
+        simulated = simulate_pipeline(
+            scaled, batches=BATCHES, seed=DEFAULT_SEED, replications=REPLICATIONS
         )
-        points.append((base_fleet * multiple, result.attainment(pipeline.sla_minutes)))
+        points.append((base_fleet * multiple, simulated.attainment(pipeline.sla_minutes)))
+    cap = points[-1][1]
+    reachable = cap >= TARGET
 
-    cliff = utilization_cliff(pipeline, pipeline.evaluate().bottleneck.name)
+    cliff = utilization_cliff(pipeline, result.bottleneck.name)
 
     parts: list[str] = []
     add = parts.append
@@ -65,12 +65,17 @@ def main() -> None:
     add(f'<text x="{LEFT_X}" y="40" fill="{RED}" font-size="13" font-weight="700" '
         f'letter-spacing="2">PIPELINE SLA CAPACITY</text>')
     baseline_attainment = points[0][1]
+    verdict = "meets" if result.meets_sla else "misses"
     add(f'<text x="{LEFT_X}" y="70" fill="{PARCHMENT}" font-size="25" font-weight="700">'
-        f'The mean meets the SLA. The pipeline misses it '
+        f'The mean {verdict} the SLA. The pipeline misses it '
         f'{(1 - baseline_attainment) * 100:.0f}% of the time.</text>')
-    add(f'<text x="{LEFT_X}" y="94" fill="{MUTED}" font-size="13.5">'
-        f'And no amount of capacity fixes that, because the service times alone '
-        f'breach the promise.</text>')
+    subtitle = (
+        'Capacity can close that gap: the ceiling clears the target.'
+        if reachable else
+        'And no amount of capacity fixes that, because the service times alone '
+        'breach the promise.'
+    )
+    add(f'<text x="{LEFT_X}" y="94" fill="{MUTED}" font-size="13.5">{subtitle}</text>')
 
     plot_h = HEIGHT - PAD_T - PAD_B
 
@@ -99,14 +104,13 @@ def main() -> None:
     add(f'<text x="{LEFT_X + PANEL_W:.1f}" y="{ly(TARGET) - 8:.1f}" fill="{PARCHMENT}" '
         f'font-size="11.5" text-anchor="end">99% target</text>')
 
-    cap = ceiling.attainment_ceiling
     add(f'<line x1="{LEFT_X}" y1="{ly(cap):.1f}" x2="{LEFT_X + PANEL_W:.1f}" '
         f'y2="{ly(cap):.1f}" stroke="{RED}" stroke-width="1.5" stroke-dasharray="4 4"/>')
     add(f'<rect x="{LEFT_X + PANEL_W - 168:.1f}" y="{ly(cap) + 8:.1f}" width="168" '
         f'height="21" fill="{RED}"/>')
     add(f'<text x="{LEFT_X + PANEL_W - 84:.1f}" y="{ly(cap) + 23:.1f}" fill="{PARCHMENT}" '
         f'font-size="11.5" font-weight="700" text-anchor="middle">'
-        f'ceiling {cap * 100:.0f}%, unreachable</text>')
+        f'ceiling {cap * 100:.0f}%, {"reachable" if reachable else "unreachable"}</text>')
 
     polyline = " ".join(f"{lx(f):.1f},{ly(a):.1f}" for f, a in points)
     add(f'<polyline points="{polyline}" fill="none" stroke="{RED}" stroke-width="3" '
@@ -119,7 +123,7 @@ def main() -> None:
             f'font-size="11.5" text-anchor="middle">{fleet}</text>')
     add(f'<text x="{LEFT_X + PANEL_W / 2:.1f}" y="{PAD_T + plot_h + 46:.1f}" '
         f'fill="{MUTED}" font-size="12" text-anchor="middle">Total workers across '
-        f'all four stages</text>')
+        f'all {count_words(len(pipeline.stages))} stages</text>')
 
     # --- right panel: the utilization cliff ---
     latencies = [r.latency_minutes for r in cliff]

@@ -22,17 +22,24 @@ from __future__ import annotations
 import heapq
 import math
 import random
+from collections.abc import Callable
 from dataclasses import dataclass
+from functools import lru_cache
 
 from .pipeline import Pipeline
 from .queueing import Workload
 
+DEFAULT_SEED = 20260916
 
-@dataclass
+
+@dataclass(frozen=True)
 class SimulationResult:
-    completed: int
     waits: list[float]
     sojourns: list[float]
+
+    @property
+    def completed(self) -> int:
+        return len(self.sojourns)
 
     @property
     def mean_wait(self) -> float:
@@ -56,35 +63,37 @@ class SimulationResult:
         return sum(1 for s in self.sojourns if s <= sla_minutes) / len(self.sojourns)
 
 
-def _sample(rng: random.Random, mean: float, cv: float) -> float:
-    """Draw a positive duration with the requested mean and coefficient of variation.
+def _sampler(rng: random.Random, mean: float, cv: float) -> Callable[[], float]:
+    """Draws of positive durations with the requested mean and coefficient of variation.
 
     Exponential when cv is 1, deterministic when cv is 0, gamma otherwise.
     Matching the cv rather than assuming exponential everywhere is the point:
     variability is the input the formulas are most sensitive to.
     """
     if cv <= 0:
-        return mean
+        return lambda: mean
     if abs(cv - 1.0) < 1e-9:
-        return rng.expovariate(1.0 / mean)
+        rate = 1.0 / mean
+        return lambda: rng.expovariate(rate)
     shape = 1.0 / (cv**2)
     scale = mean / shape
-    return rng.gammavariate(shape, scale)
+    return lambda: rng.gammavariate(shape, scale)
 
 
 def simulate_stage(
     workload: Workload,
     *,
     batches: int = 20_000,
-    warmup: int = 2_000,
-    seed: int = 20260916,
+    warmup: int | None = None,
+    seed: int = DEFAULT_SEED,
     replications: int = 1,
 ) -> SimulationResult:
     """Single-stage multi-server queue, FIFO.
 
-    The first `warmup` batches of each replication are discarded. A queue
-    started empty is not in steady state, and its early, unnaturally short
-    waits bias every statistic downward.
+    The first `warmup` batches of each replication are discarded, a tenth of
+    the run unless told otherwise. A queue started empty is not in steady
+    state, and its early, unnaturally short waits bias every statistic
+    downward.
 
     With `replications` above 1 the run is repeated on fresh seeds and the
     samples pooled. Prefer more replications over a longer single run: waits
@@ -93,25 +102,30 @@ def simulate_stage(
     """
     if not workload.is_stable:
         raise ValueError("cannot simulate an unstable queue: utilization is at or above 1")
+    if warmup is None:
+        warmup = batches // 10
 
-    if replications > 1:
-        pooled_waits: list[float] = []
-        pooled_sojourns: list[float] = []
-        for rep in range(replications):
-            run = _run_once(workload, batches, warmup, seed + rep * 7919)
-            pooled_waits.extend(run.waits)
-            pooled_sojourns.extend(run.sojourns)
-        return SimulationResult(
-            completed=len(pooled_sojourns), waits=pooled_waits, sojourns=pooled_sojourns
-        )
-
-    return _run_once(workload, batches, warmup, seed)
+    waits: list[float] = []
+    sojourns: list[float] = []
+    for rep in range(replications):
+        run = _run_once(workload, batches, warmup, seed + rep * 7919)
+        waits.extend(run.waits)
+        sojourns.extend(run.sojourns)
+    return SimulationResult(waits=waits, sojourns=sojourns)
 
 
-def _run_once(
-    workload: Workload, batches: int, warmup: int, seed: int
-) -> SimulationResult:
+@lru_cache(maxsize=256)
+def _run_once(workload: Workload, batches: int, warmup: int, seed: int) -> SimulationResult:
+    """One replication, memoised.
+
+    Planners re-simulate a pipeline after changing one stage, and every other
+    stage is then the same workload on the same seed. The cache turns those
+    repeats into lookups; callers copy the samples out rather than mutate them.
+    """
     rng = random.Random(seed)
+    next_interarrival = _sampler(rng, 1.0 / workload.arrival_rate, workload.arrival_cv)
+    next_service = _sampler(rng, workload.service_time, workload.service_cv)
+
     # One "next free" time per server, kept as a heap so the earliest is on top.
     free_at = [0.0] * workload.servers
     heapq.heapify(free_at)
@@ -119,29 +133,27 @@ def _run_once(
     arrival = 0.0
     waits: list[float] = []
     sojourns: list[float] = []
-    mean_interarrival = 1.0 / workload.arrival_rate
 
     for index in range(batches):
-        arrival += _sample(rng, mean_interarrival, workload.arrival_cv)
+        arrival += next_interarrival()
         earliest_free = heapq.heappop(free_at)
         start = max(arrival, earliest_free)
-        service = _sample(rng, workload.service_time, workload.service_cv)
-        finish = start + service
+        finish = start + next_service()
         heapq.heappush(free_at, finish)
 
         if index >= warmup:
             waits.append(start - arrival)
             sojourns.append(finish - arrival)
 
-    return SimulationResult(completed=len(sojourns), waits=waits, sojourns=sojourns)
+    return SimulationResult(waits=waits, sojourns=sojourns)
 
 
 def simulate_pipeline(
     pipeline: Pipeline,
     *,
     batches: int = 20_000,
-    warmup: int = 2_000,
-    seed: int = 20260916,
+    warmup: int | None = None,
+    seed: int = DEFAULT_SEED,
     replications: int = 1,
 ) -> SimulationResult:
     """End-to-end latency across every stage.
@@ -160,10 +172,21 @@ def simulate_pipeline(
         )
         for i, stage in enumerate(pipeline.stages)
     ]
-    length = min(len(r.sojourns) for r in per_stage)
-    totals = [sum(r.sojourns[i] for r in per_stage) for i in range(length)]
-    waits = [sum(r.waits[i] for r in per_stage) for i in range(length)]
-    return SimulationResult(completed=length, waits=waits, sojourns=totals)
+    waits = [sum(step) for step in zip(*(r.waits for r in per_stage))]
+    sojourns = [sum(step) for step in zip(*(r.sojourns for r in per_stage))]
+    return SimulationResult(waits=waits, sojourns=sojourns)
+
+
+def sla_attainment(
+    pipeline: Pipeline,
+    *,
+    batches: int,
+    replications: int = 1,
+    seed: int = DEFAULT_SEED,
+) -> float:
+    """Share of batches landing inside the pipeline's SLA, by simulation."""
+    result = simulate_pipeline(pipeline, batches=batches, seed=seed, replications=replications)
+    return result.attainment(pipeline.sla_minutes)
 
 
 def attainment_curve(
@@ -171,7 +194,7 @@ def attainment_curve(
     multipliers: list[float],
     *,
     batches: int = 8_000,
-    seed: int = 20260916,
+    seed: int = DEFAULT_SEED,
     replications: int = 4,
 ) -> list[tuple[float, float]]:
     """SLA attainment against demand, for the peak-load conversation.
@@ -185,12 +208,6 @@ def attainment_curve(
         if any(not s.workload.is_stable for s in scaled.stages):
             curve.append((multiplier, 0.0))
             continue
-        result = simulate_pipeline(
-            scaled,
-            batches=batches,
-            warmup=batches // 10,
-            seed=seed,
-            replications=replications,
-        )
-        curve.append((multiplier, result.attainment(pipeline.sla_minutes)))
+        share = sla_attainment(scaled, batches=batches, replications=replications, seed=seed)
+        curve.append((multiplier, share))
     return curve

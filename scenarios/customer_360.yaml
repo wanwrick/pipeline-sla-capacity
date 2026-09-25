@@ -57,8 +57,7 @@ costs:
   sla_credit: 12_000.0          # contractual credit if attainment misses 99%
 
 simulation:
-  batches: 20000
-  warmup: 2000
+  batches: 20000            # per replication; the first tenth is warm-up
   seed: 20260916
 
 peak_multipliers: [1.0, 1.1, 1.2, 1.3, 1.4, 1.5]

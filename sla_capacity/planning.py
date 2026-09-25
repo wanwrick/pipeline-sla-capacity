@@ -1,10 +1,10 @@
 """Plan capacity against attainment, not against the mean.
 
-`cheapest_path_to_sla` in pipeline.py sizes to a mean latency, which is what the
-closed-form model can answer directly. It is also the wrong target. A pipeline
-whose mean sits comfortably inside a 15-minute promise can still miss that
-promise a third of the time, because the SLA is a percentile and the mean says
-nothing about the tail.
+The closed-form model can size a pipeline to a mean latency directly, and the
+first planner written here did exactly that. It was the wrong target. A
+pipeline whose mean sits comfortably inside a 15-minute promise can still miss
+that promise a third of the time, because the SLA is a percentile and the mean
+says nothing about the tail.
 
 So the planner here is a hybrid. Candidates are ranked by the analytic gain,
 which is free and closely tracks the real ordering, and termination is decided
@@ -15,10 +15,11 @@ declare victory on the wrong statistic.
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 
 from .pipeline import Pipeline
-from .simulate import simulate_pipeline
+from .simulate import DEFAULT_SEED, simulate_pipeline, sla_attainment
 
 
 @dataclass
@@ -39,27 +40,11 @@ class AttainmentPlan:
 
     @property
     def servers_added(self) -> dict[str, int]:
-        totals: dict[str, int] = {}
-        for step in self.steps:
-            totals[step.stage_name] = totals.get(step.stage_name, 0) + 1
-        return totals
+        return dict(Counter(step.stage_name for step in self.steps))
 
     @property
     def total_added(self) -> int:
         return len(self.steps)
-
-
-def _attainment(
-    pipeline: Pipeline, batches: int, replications: int, seed: int
-) -> float:
-    result = simulate_pipeline(
-        pipeline,
-        batches=batches,
-        warmup=batches // 10,
-        seed=seed,
-        replications=replications,
-    )
-    return result.attainment(pipeline.sla_minutes)
 
 
 def plan_for_attainment(
@@ -69,7 +54,7 @@ def plan_for_attainment(
     max_additions: int = 24,
     batches: int = 6_000,
     replications: int = 4,
-    seed: int = 20260916,
+    seed: int = DEFAULT_SEED,
 ) -> AttainmentPlan:
     """Add workers one at a time until the simulated attainment clears the target.
 
@@ -77,8 +62,9 @@ def plan_for_attainment(
     re-measures attainment. The plan is a sequence rather than a lump sum, so a
     team can stop partway and still know exactly what it bought.
     """
+    budget = {"batches": batches, "replications": replications, "seed": seed}
     current = pipeline
-    start = _attainment(current, batches, replications, seed)
+    start = sla_attainment(current, **budget)
     attainment = start
     steps: list[AttainmentStep] = []
 
@@ -98,7 +84,7 @@ def plan_for_attainment(
             break  # No single worker helps; the constraint is variability.
 
         _, stage_name, current = best
-        attainment = _attainment(current, batches, replications, seed)
+        attainment = sla_attainment(current, **budget)
         servers = next(s for s in current.stages if s.name == stage_name).workload.servers
         steps.append(
             AttainmentStep(
@@ -125,7 +111,7 @@ def variability_alternative(
     *,
     batches: int = 6_000,
     replications: int = 4,
-    seed: int = 20260916,
+    seed: int = DEFAULT_SEED,
 ) -> tuple[float, float]:
     """Attainment before and after cutting one stage's service variability.
 
@@ -133,9 +119,9 @@ def variability_alternative(
     Kingman's formula linearly, so halving it halves that stage's wait at every
     utilization, and it is often an engineering change rather than an invoice.
     """
-    before = _attainment(pipeline, batches, replications, seed)
-    improved = pipeline.with_service_cv(stage_name, improved_cv)
-    after = _attainment(improved, batches, replications, seed)
+    budget = {"batches": batches, "replications": replications, "seed": seed}
+    before = sla_attainment(pipeline, **budget)
+    after = sla_attainment(pipeline.with_service_cv(stage_name, improved_cv), **budget)
     return before, after
 
 
@@ -157,116 +143,34 @@ class CapacityCeiling:
     floor_mean: float
     floor_p95: float
     floor_p99: float
-    sla_minutes: float
+    target_attainment: float
 
     @property
     def is_reachable(self) -> bool:
-        return self.attainment_ceiling >= 0.99
-
-    @property
-    def service_time_floor_exceeds_sla(self) -> bool:
-        return self.floor_p99 > self.sla_minutes
+        return self.attainment_ceiling >= self.target_attainment
 
 
 def attainment_ceiling(
     pipeline: Pipeline,
     *,
+    target_attainment: float = 0.99,
     multiplier: int = 12,
     batches: int = 8_000,
     replications: int = 4,
-    seed: int = 20260916,
+    seed: int = DEFAULT_SEED,
 ) -> CapacityCeiling:
-    """Attainment with queueing driven out by overwhelming capacity."""
-    flooded = pipeline
-    for stage in pipeline.stages:
-        flooded = flooded.with_servers(stage.name, stage.workload.servers * multiplier)
+    """Attainment with queueing driven out by overwhelming capacity.
 
-    result = simulate_pipeline(
-        flooded,
-        batches=batches,
-        warmup=batches // 10,
-        seed=seed,
-        replications=replications,
-    )
+    The percentiles of the flooded run are the SLAs this design could actually
+    hold: a number the pipeline can keep is worth more than one that sounds
+    good in a contract and breaches every week.
+    """
+    flooded = pipeline.with_server_multiplier(multiplier)
+    result = simulate_pipeline(flooded, batches=batches, seed=seed, replications=replications)
     return CapacityCeiling(
         attainment_ceiling=result.attainment(pipeline.sla_minutes),
         floor_mean=result.mean_sojourn,
         floor_p95=result.percentile(0.95),
         floor_p99=result.percentile(0.99),
-        sla_minutes=pipeline.sla_minutes,
+        target_attainment=target_attainment,
     )
-
-
-def achievable_sla(
-    pipeline: Pipeline,
-    target_attainment: float = 0.99,
-    *,
-    multiplier: int = 12,
-    batches: int = 8_000,
-    replications: int = 4,
-    seed: int = 20260916,
-) -> float:
-    """The SLA this design could actually hold at the target attainment.
-
-    Useful when the answer is that the promise is wrong rather than the
-    capacity. A number the pipeline can hold is worth more than a number that
-    sounds good in a contract and breaches every week.
-    """
-    flooded = pipeline
-    for stage in pipeline.stages:
-        flooded = flooded.with_servers(stage.name, stage.workload.servers * multiplier)
-
-    result = simulate_pipeline(
-        flooded,
-        batches=batches,
-        warmup=batches // 10,
-        seed=seed,
-        replications=replications,
-    )
-    return result.percentile(target_attainment)
-
-
-def service_time_reduction_needed(
-    pipeline: Pipeline,
-    stage_name: str,
-    target_attainment: float = 0.99,
-    *,
-    batches: int = 6_000,
-    replications: int = 3,
-    seed: int = 20260916,
-    steps: int = 12,
-) -> float | None:
-    """The share a stage's service time must fall by to reach the target.
-
-    Returns None when cutting that stage to nothing still misses, which means
-    the constraint is spread across the pipeline rather than sitting in one
-    place. Capacity is generous here so the answer isolates service time.
-    """
-    from dataclasses import replace as _replace
-
-    generous = pipeline
-    for stage in pipeline.stages:
-        generous = generous.with_servers(stage.name, stage.workload.servers * 4)
-
-    target_stage = next(s for s in generous.stages if s.name == stage_name)
-    original = target_stage.workload.service_time
-
-    for step in range(steps + 1):
-        reduction = step / steps
-        candidate = _replace(
-            generous,
-            stages=[
-                _replace(
-                    s,
-                    workload=_replace(
-                        s.workload, service_time=max(0.01, original * (1.0 - reduction))
-                    ),
-                )
-                if s.name == stage_name
-                else s
-                for s in generous.stages
-            ],
-        )
-        if _attainment(candidate, batches, replications, seed) >= target_attainment:
-            return reduction
-    return None

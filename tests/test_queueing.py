@@ -8,6 +8,7 @@ ever disagree, every number in the memo is suspect.
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 import pytest
 
@@ -145,10 +146,19 @@ def test_the_utilization_term_explodes_near_saturation():
     assert at_95 / at_90 > 2.0
 
 
-def test_vut_factors_multiply_back_to_the_wait():
+def test_vut_factors_report_the_named_quantities():
+    """V is the mean of the squared coefficients of variation; T is the service time."""
     w = workload(0.8, servers=3, arrival_cv=1.2, service_cv=0.9)
     v, u, t = vut_factors(w)
-    assert v * u * t == pytest.approx(kingman_wait_time(w))
+    assert v == pytest.approx((1.2**2 + 0.9**2) / 2)
+    assert t == w.service_time
+    assert u > 0
+
+
+def test_kingman_is_infinite_for_an_unstable_queue():
+    """Even with no variability at all: the guard comes before the arithmetic."""
+    w = workload(1.0, servers=2, arrival_cv=0.0, service_cv=0.0)
+    assert math.isinf(kingman_wait_time(w))
 
 
 # --- Little's Law -------------------------------------------------------------------
@@ -172,8 +182,6 @@ def test_sizing_finds_a_server_count_that_meets_the_target():
     w = workload(0.9, servers=2)
     needed = servers_for_target_latency(w, 4.0)
     assert needed is not None
-    from dataclasses import replace
-
     assert sojourn_time(replace(w, servers=needed)) <= 4.0
 
 
@@ -183,14 +191,11 @@ def test_sizing_returns_none_below_the_service_time():
 
 
 def test_target_utilization_hits_the_latency_it_promises():
-    from dataclasses import replace
-
     w = workload(0.8, servers=3)
     target = 6.0
     rho = utilization_for_target_latency(w, target)
     assert rho is not None
-    tuned = replace(w, arrival_rate=rho * w.servers / w.service_time)
-    assert sojourn_time(tuned) == pytest.approx(target, rel=1e-3)
+    assert sojourn_time(w.at_utilization(rho)) == pytest.approx(target, rel=1e-3)
 
 
 def test_target_utilization_is_none_below_the_service_time():

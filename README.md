@@ -62,7 +62,7 @@ pip install -r requirements.txt
 python run.py --summary       # stage table, instant
 python run.py --fast          # full analysis, fewer batches
 python run.py                 # writes output/capacity.md
-pytest -q                     # 58 tests
+pytest -q                     # 59 tests
 ```
 
 Edit `scenarios/customer_360.yaml` and rerun. The memo is generated from the
@@ -132,7 +132,7 @@ wrong stage when they diverge.
 ## Tests
 
 ```bash
-pytest -q        # 58 tests
+pytest -q        # 59 tests
 ```
 
 The load-bearing test is `test_simulation_reproduces_the_closed_form`. The whole
